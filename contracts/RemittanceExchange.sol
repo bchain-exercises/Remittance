@@ -8,25 +8,32 @@ import "../node_modules/zeppelin-solidity/contracts/lifecycle/Destructible.sol";
 contract RemittanceExchange is Destructible {
     using SafeMath for uint256;
     
-    IRemittance private remittance;
+    IRemittance public remittance;
+    uint256 public comission;
     
     mapping(address => uint256) public exchangeRates;
+    mapping(address => mapping(bytes32 => ExchangedRemittance)) public convertedRemittances;
     
     struct ExchangedRemittance {
         address currency;
         uint256 amount;
-    }
+    }    
     
-    mapping(address => mapping(bytes32 => ExchangedRemittance)) public convertedRemittances;
-    
-    function RemittanceExchange(address _remittance) public {
+    function RemittanceExchange(address _remittance, uint256 _exchangeComission) public {
         require(_remittance != address(0));
         
         remittance = IRemittance(_remittance);
+        comission = _exchangeComission;
     }
     
     function setExchangeRate(address _currency, uint256 _unitWeiCost) public onlyOwner {
+        require(_currency != address(0));
+
         exchangeRates[_currency] = _unitWeiCost;
+    }
+
+    function setExchangeComission(uint256 _exchangeComission) public onlyOwner {
+        comission = _exchangeComission;
     }
     
     function convertRemittance(
@@ -39,14 +46,11 @@ contract RemittanceExchange is Destructible {
         remittance.withdrawRemittanceFunds(_recipientPassHash, _exchangePassHash, _senderAddress, msg.sender);
         uint256 newBalance = address(this).balance;
         
-        require(newBalance > oldBalance);
-        
-        uint256 remittanceAmount = newBalance.sub(oldBalance);
+        uint256 remittanceAmount = newBalance.sub(oldBalance.add(comission));
         uint256 convertedRemittanceAmount = remittanceAmount.div(exchangeRates[_currency]);
         
         require(convertedRemittanceAmount != 0);
         
-        // uint256 exchangeRemainder = remittanceAmount % exchangeRates[_currency];
         bytes32 exchangedRemittanceHash = keccak256(_currency, _recipientPassHash);
         
         convertedRemittances[msg.sender][exchangedRemittanceHash].currency = _currency;
@@ -61,9 +65,10 @@ contract RemittanceExchange is Destructible {
         require(convertedRemittances[msg.sender][_exchangedRemittanceHash].currency != address(0));
         
         uint256 toSend = convertedRemittances[msg.sender][_exchangedRemittanceHash].amount;
-        ICurrency currency = ICurrency(convertedRemittances[msg.sender][_exchangedRemittanceHash].currency);
-        
+
         delete convertedRemittances[msg.sender][_exchangedRemittanceHash];
+
+        ICurrency currency = ICurrency(convertedRemittances[msg.sender][_exchangedRemittanceHash].currency);
         
         require(currency.transfer(msg.sender, toSend));
     }    

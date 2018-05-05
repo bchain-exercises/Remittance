@@ -3,7 +3,7 @@ pragma solidity ^0.4.21;
 import "../node_modules/zeppelin-solidity/contracts/math/SafeMath.sol";
 import "../node_modules/zeppelin-solidity/contracts/lifecycle/Destructible.sol";
 
-contract Remittance {
+contract Remittance is Destructible {
     using SafeMath for uint256;
     
     enum ExchangeStatus {
@@ -18,6 +18,7 @@ contract Remittance {
     }
     
     uint256 public remittanceRevertDelay;
+
     mapping(address => ExchangeStatus) public exchanges;
     mapping(bytes32 => RemittanceInfo) public remittances;
     
@@ -25,6 +26,12 @@ contract Remittance {
         require(_remittanceRevertDelay > 0);
 
         remittanceRevertDelay = _remittanceRevertDelay;
+    }
+
+    function setRemittanceRevertDelay(uint256 _revertDelay) public onlyOwner {
+        require(_revertDelay > 0);
+
+        remittanceRevertDelay = _revertDelay;
     }
     
     function setExchangeStatus(address _exchange, ExchangeStatus _status) public onlyOwner {
@@ -35,22 +42,17 @@ contract Remittance {
     function createRemittance(bytes32 _remittanceDescriptionHash) public payable {
         bytes32 remittanceHash = keccak256(msg.sender, _remittanceDescriptionHash);
         
-        // Remittance does not exist
-        require(remittances[remittanceHash].revertPeriodStart == 0);
         require(msg.value > 0);
+        require(remittances[remittanceHash].revertPeriodStart == 0);
         
-        uint256 remitAmount = msg.value;
-        uint256 remitRevertPeriodStart = now.add(remittanceRevertDelay);
-        
-        remittances[remittanceHash] = RemittanceInfo(remitAmount, remitRevertPeriodStart);
+        remittances[remittanceHash] = RemittanceInfo(msg.value, now.add(remittanceRevertDelay));
     }
     
     // keccak256(senderPassHash, exchangePassHash, recipientAddress) => bytes32
     function revertRemittance(bytes32 _remittanceDescriptionHash) public {
         bytes32 remittanceHash = keccak256(msg.sender, _remittanceDescriptionHash);
         
-        // Remittance can be reverted
-        require(remittances[remittanceHash].revertPeriodStart > 0 && remittances[remittanceHash].revertPeriodStart < now);
+        require(remittances[remittanceHash].revertPeriodStart < now);
         
         _transferRemittanceFunds(remittanceHash, msg.sender);
     }
@@ -65,17 +67,17 @@ contract Remittance {
         
         bytes32 remittanceDescriptionHash = keccak256(_recipientPassHash, _exchangePassHash, _recipientAddress);
         bytes32 remittanceHash = keccak256(_senderAddress, remittanceDescriptionHash);
-
-        require(remittances[remittanceHash].amount > 0 && remittances[remittanceHash].revertPeriodStart > 0);
         
         _transferRemittanceFunds(remittanceHash, msg.sender);
     }
     
     function _transferRemittanceFunds(bytes32 _remittanceHash, address _beneficiary) internal {
+        require(remittances[_remittanceHash].amount > 0 && remittances[_remittanceHash].revertPeriodStart > 0);
+
         uint256 toSend = remittances[_remittanceHash].amount;
         
         delete remittances[_remittanceHash];
         
         _beneficiary.transfer(toSend);
-    }    
+    }
 }
