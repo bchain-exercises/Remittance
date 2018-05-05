@@ -17,7 +17,12 @@ contract RemittanceExchange is Destructible {
     struct ExchangedRemittance {
         address currency;
         uint256 amount;
-    }    
+    }
+
+    event ExchangeRateChanged(uint256 newExchangeRate);
+    event ExchangeComissionChanged(uint256 newExchangeComission);
+    event RemittanceConverted(address indexed sender, address indexed recipient, uint256 weiAmount, uint256 currencyAmount);
+    event ConvertedRemittanceWithdrawal(address indexed recipient, uint256 currencyAmount);
     
     function RemittanceExchange(address _remittance, uint256 _exchangeComission) public {
         require(_remittance != address(0));
@@ -30,10 +35,12 @@ contract RemittanceExchange is Destructible {
         require(_currency != address(0));
 
         exchangeRates[_currency] = _unitWeiCost;
+        emit ExchangeRateChanged(_unitWeiCost);
     }
 
     function setExchangeComission(uint256 _exchangeComission) public onlyOwner {
         comission = _exchangeComission;
+        emit ExchangeComissionChanged(_exchangeComission);
     }
     
     function convertRemittance(
@@ -56,6 +63,8 @@ contract RemittanceExchange is Destructible {
         convertedRemittances[msg.sender][exchangedRemittanceHash].currency = _currency;
         convertedRemittances[msg.sender][exchangedRemittanceHash].amount = convertedRemittances[msg.sender][exchangedRemittanceHash].amount.add(convertedRemittanceAmount);
         
+        emit RemittanceConverted(_senderAddress, msg.sender, remittanceAmount, convertedRemittanceAmount);
+
         return exchangedRemittanceHash;
     }
     
@@ -71,5 +80,7 @@ contract RemittanceExchange is Destructible {
         ICurrency currency = ICurrency(convertedRemittances[msg.sender][_exchangedRemittanceHash].currency);
         
         require(currency.transfer(msg.sender, toSend));
-    }    
+
+        emit ConvertedRemittanceWithdrawal(msg.sender, toSend);
+    }
 }
